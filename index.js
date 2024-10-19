@@ -73,11 +73,9 @@ app.post('/login', async (req, res) => {
     }
 
     // Generate JWT untuk user yang berhasil login
-    const token = jwt.sign(
-      { email: user.email, id: user.id, role: user.role }, // Menambahkan role di payload
-      process.env.JWT_SECRET, // Menggunakan JWT_SECRET dari environment
-      { expiresIn: '1h' }
-    );
+    const token = jwt.sign({ email: user.email, id: user.id }, 'secretkey', {
+      expiresIn: '1h',
+    });
 
     res.json({ message: 'Login successful', token });
   } catch (error) {
@@ -134,6 +132,6 @@ app.get('/api/user', async (req, res) => {
 
 
 // Jalankan server di port 4000
-app.listen(3000, () => {
-  console.log('Server running on port 3000');
+app.listen(4000, () => {
+  console.log('Server running on port 4000');
 });
