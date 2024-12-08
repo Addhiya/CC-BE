@@ -11,13 +11,37 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Middleware untuk autentikasi JWT
+const authenticateToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+
+  if (!token) {
+    return res.status(403).json({ error: 'No token provided' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, 'secretkey');
+    req.user = decoded; // Simpan data user ke req
+    next();
+  } catch (error) {
+    res.status(403).json({ error: 'Invalid token' });
+  }
+};
+
+// Middleware untuk memverifikasi role admin
+const authorizeAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied: Admins only' });
+  }
+  next();
+};
+
 // API untuk registrasi user
 app.post('/register', async (req, res) => {
   const { email, name, nim, password, role, confirmPassword } = req.body;
 
   console.log(req.body); // Cek data yang dikirim
 
-  // Periksa apakah password dan konfirmasi password cocok
   if (!password || !confirmPassword) {
     return res.status(400).json({ error: 'Password is required' });
   }
@@ -27,10 +51,8 @@ app.post('/register', async (req, res) => {
   }
 
   try {
-    // Hash password sebelum disimpan di database
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Simpan user ke database
     const newUser = await prisma.user.create({
       data: {
         email,
@@ -43,7 +65,6 @@ app.post('/register', async (req, res) => {
 
     res.json({ message: 'User registered successfully', user: newUser });
   } catch (error) {
-    // Tangani error jika terjadi
     res.status(500).json({ error: 'Error registering user: ' + error.message });
   }
 });
@@ -57,7 +78,6 @@ app.post('/login', async (req, res) => {
   }
 
   try {
-    // Cari user berdasarkan email
     const user = await prisma.user.findUnique({
       where: { email },
     });
@@ -66,14 +86,12 @@ app.post('/login', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Cek apakah password cocok
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ error: 'Invalid password' });
     }
 
-    // Generate JWT untuk user yang berhasil login
-    const token = jwt.sign({ email: user.email, id: user.id }, 'secretkey', {
+    const token = jwt.sign({ email: user.email, id: user.id, role: user.role }, 'secretkey', {
       expiresIn: '1h',
     });
 
@@ -99,19 +117,11 @@ app.get('/verify-token', async (req, res) => {
   }
 });
 
-// API untuk mengambil data pengguna
-// API untuk mendapatkan data pengguna
-app.get('/api/user', async (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-
-  if (!token) {
-    return res.status(403).json({ error: 'No token provided' });
-  }
-
+// API untuk mendapatkan data pengguna (user yang sedang login)
+app.get('/api/user', authenticateToken, async (req, res) => {
   try {
-    const decoded = jwt.verify(token, 'secretkey');
     const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
+      where: { id: req.user.id },
       select: {
         name: true,
         email: true,
@@ -126,10 +136,40 @@ app.get('/api/user', async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    res.status(403).json({ error: 'Invalid token' });
+    res.status(403).json({ error: 'Error fetching user: ' + error.message });
   }
 });
 
+// API untuk mendapatkan semua user
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { id: true, name: true, email: true, nim: true, role: true }, // Tentukan kolom yang ditampilkan
+    });
+
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching users: ' + error.message });
+  }
+});
+
+// API untuk menghapus user berdasarkan ID (hanya untuk admin)
+app.delete('/api/user/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: Number(id) } });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.user.delete({ where: { id: Number(id) } });
+    res.json({ message: `User with ID ${id} has been deleted.` });
+  } catch (error) {
+    res.status(500).json({ error: 'Error deleting user: ' + error.message });
+  }
+});
 
 // Jalankan server di port 4000
 app.listen(4000, () => {
