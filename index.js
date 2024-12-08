@@ -7,7 +7,6 @@ const cors = require('cors');
 // Inisialisasi Prisma Client
 const prisma = new PrismaClient();
 
-
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -27,14 +26,6 @@ const authenticateToken = (req, res, next) => {
   } catch (error) {
     res.status(403).json({ error: 'Invalid token' });
   }
-};
-
-// Middleware untuk memverifikasi role admin
-const authorizeAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied: Admins only' });
-  }
-  next();
 };
 
 // API untuk registrasi user
@@ -92,7 +83,7 @@ app.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid password' });
     }
 
-    const token = jwt.sign({ email: user.email, id: user.id, role: user.role }, 'secretkey', {
+    const token = jwt.sign({ email: user.email, id: user.id }, 'secretkey', {
       expiresIn: '1h',
     });
 
@@ -119,10 +110,17 @@ app.get('/verify-token', async (req, res) => {
 });
 
 // API untuk mendapatkan data pengguna (user yang sedang login)
-app.get('/api/user', authenticateToken, async (req, res) => {
+app.get('/api/user', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+
+  if (!token) {
+    return res.status(403).json({ error: 'No token provided' });
+  }
+
   try {
+    const decoded = jwt.verify(token, 'secretkey');
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: decoded.id },
       select: {
         name: true,
         email: true,
@@ -137,7 +135,7 @@ app.get('/api/user', authenticateToken, async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    res.status(403).json({ error: 'Error fetching user: ' + error.message });
+    res.status(403).json({ error: 'Invalid token' });
   }
 });
 
@@ -154,8 +152,8 @@ app.get('/api/users', authenticateToken, async (req, res) => {
   }
 });
 
-// API untuk menghapus user berdasarkan ID (hanya untuk admin)
-app.delete('/api/user/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+// API untuk menghapus user berdasarkan ID
+app.delete('/api/user/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
   try {
